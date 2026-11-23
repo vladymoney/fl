@@ -12,6 +12,6 @@ Open `index.html` in a browser, or serve it with Docker:
 docker compose up -d
 ```
 
-Then open http://localhost:8080.
+Then open http://localhost:47391.
 
 Docker is optional. The page is a single static file and works on any static host, such as GitHub Pages.
