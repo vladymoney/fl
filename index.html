@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bouquet for Denichka</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,500&family=Great+Vibes&display=swap" rel="stylesheet">
+<style>
+  /* Layout: full-screen 3D scene; dedication centred at the top, hint and replay along the bottom. Single theme by choice (evening wine). */
+  :root {
+    color-scheme: dark;
+    --bg-deep: #2a0f24;
+    --bg-glow: #7a3157;
+    --ink: #fff1ea;
+    --ink-soft: #ecc6d2;
+    --accent: #ff9dbb;
+    --panel: rgba(42, 15, 36, 0.55);
+    --font-display: "Great Vibes", "Snell Roundhand", "Apple Chancery", cursive;
+    --font-body: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: radial-gradient(ellipse at 50% 58%, var(--bg-glow), var(--bg-deep) 72%) var(--bg-deep);
+    color: var(--ink);
+    font-family: var(--font-body);
+    overflow: hidden;
+    position: relative;
+  }
+  canvas {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    display: block;
+    touch-action: none;
+    cursor: grab;
+  }
+  canvas:active { cursor: grabbing; }
+  .caption {
+    position: absolute; top: 22px; left: 16px; right: 16px;
+    text-align: center;
+    pointer-events: none;
+  }
+  .caption .lead {
+    margin: 0;
+    font-style: italic;
+    font-size: clamp(1.15rem, 4.6vw, 1.6rem);
+    color: var(--ink-soft);
+    letter-spacing: 0.02em;
+  }
+  .caption .name {
+    display: inline-block;
+    margin: 0;
+    padding: 0 0.25em;
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: clamp(3.2rem, 16vw, 6rem);
+    line-height: 1.15;
+    color: var(--ink);
+    text-shadow: 0 0 22px rgba(255, 157, 187, 0.55);
+    clip-path: inset(-20% 100% -20% -5%);
+    transition: clip-path 2.6s ease-in-out;
+  }
+  .caption .heart {
+    display: block;
+    margin-top: -4px;
+    font-size: 1.3rem;
+    color: var(--accent);
+    opacity: 0;
+    transform: scale(0.4);
+    transition: opacity 0.6s ease 2.3s, transform 0.6s cubic-bezier(.3,1.8,.5,1) 2.3s;
+  }
+  .caption.show .name { clip-path: inset(-20% -5% -20% -5%); }
+  .caption.show .heart { opacity: 1; transform: scale(1); }
+  .caption.instant .name, .caption.instant .heart { transition: none; }
+  .hint {
+    position: absolute; left: 16px; bottom: 22px;
+    margin: 0;
+    font-style: italic;
+    font-size: 1.05rem;
+    color: var(--ink-soft);
+    pointer-events: none;
+  }
+  button {
+    position: absolute; right: 16px; bottom: 16px;
+    font: inherit; font-style: italic; font-size: 1.05rem;
+    color: var(--ink);
+    background: var(--panel);
+    border: 1px solid rgba(255, 241, 234, 0.3);
+    border-radius: 999px;
+    padding: 7px 18px;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .nogl-msg { display: none; position: absolute; left: 16px; right: 16px; top: 50%; text-align: center; font-size: 1.1rem; color: var(--ink-soft); }
+  body.nogl .nogl-msg { display: block; }
+  body.nogl .hint, body.nogl button { display: none; }
+</style>
+</head>
+<body>
+<canvas id="scene" aria-label="A 3D bouquet of peonies, roses, tulips and daisies blooming one by one"></canvas>
+<div class="caption" id="caption">
+  <p class="lead">For my favourite</p>
+  <p class="name">Denichka</p>
+  <span class="heart" aria-hidden="true">&#9829;</span>
+</div>
+<p class="hint">Drag to turn the bouquet</p>
+<button id="replay" type="button">Replay</button>
+<p class="nogl-msg">This browser could not start 3D graphics, so the bouquet cannot be shown here.</p>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  var caption = document.getElementById('caption');
+  var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var canvas = document.getElementById('scene');
+  var renderer = null;
+  if (window.THREE) {
+    try { renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true }); } catch (e) { renderer = null; }
+  }
+  if (!renderer) {
+    document.body.classList.add('nogl');
+    caption.classList.add('instant', 'show');
+    return;
+  }
+
+  var TAU = Math.PI * 2;
+  function rand(a, b) { return a + Math.random() * (b - a); }
+  function clamp(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+  function easeOutCubic(x) { return 1 - Math.pow(1 - x, 3); }
+  function easeInOut(x) { return x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2; }
+  function easeOutBack(x) { var c1 = 1.4, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); }
+
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.setClearColor(0x000000, 0);
+
+  var scene = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
+  scene.add(new THREE.HemisphereLight(0xfff0f5, 0x4a2233, 0.95));
+  var sun = new THREE.DirectionalLight(0xffffff, 0.85); sun.position.set(3, 7, 6); scene.add(sun);
+  var rim = new THREE.PointLight(0xff9dbb, 0.55, 30); rim.position.set(-5, 3, 4); scene.add(rim);
+
+  var tiltG = new THREE.Group(); tiltG.rotation.x = 0.16; scene.add(tiltG);
+  var spin = new THREE.Group(); tiltG.add(spin);
+  var bouquet = new THREE.Group(); spin.add(bouquet);
+
+  /* ---------- petal shapes ---------- */
+  function petalGeo(o) {
+    var su = 8, sv = 4, pos = [], col = [], idx = [];
+    for (var i = 0; i <= su; i++) {
+      var u = i / su;
+      var w = 0.5 * (o.base * (1 - u) + Math.pow(Math.max(0, Math.sin(Math.PI * Math.pow(u, o.p))), 0.7));
+      for (var j = 0; j <= sv; j++) {
+        var v = j / sv * 2 - 1;
+        var z = -o.cup * v * v * w * 2 - o.curl * u * u + o.ruffle * Math.sin(v * 5 + u * 7) * u;
+        pos.push(v * w, u, z);
+        var s = 0.58 + 0.42 * u;
+        col.push(s, s, s);
+      }
+    }
+    for (var a = 0; a < su; a++) for (var b = 0; b < sv; b++) {
+      var p0 = a * (sv + 1) + b, p1 = p0 + 1, p2 = p0 + sv + 1, p3 = p2 + 1;
+      idx.push(p0, p2, p1, p1, p2, p3);
+    }
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    return g;
+  }
+  var GEO = {
+    peonyIn:  petalGeo({ p: 1.25, cup: 0.38, curl: 0.2,  ruffle: 0.035, base: 0.25 }),
+    peonyOut: petalGeo({ p: 1.25, cup: 0.22, curl: -0.1, ruffle: 0.045, base: 0.25 }),
+    rose:     petalGeo({ p: 1.1,  cup: 0.5,  curl: 0.08, ruffle: 0,     base: 0.3 }),
+    roseOut:  petalGeo({ p: 1.1,  cup: 0.35, curl: -0.12, ruffle: 0,    base: 0.3 }),
+    tulip:    petalGeo({ p: 0.8,  cup: 0.55, curl: 0.22, ruffle: 0,     base: 0.35 }),
+    daisy:    petalGeo({ p: 1.0,  cup: 0.1,  curl: -0.06, ruffle: 0,    base: 0.3 }),
+    leaf:     petalGeo({ p: 0.85, cup: 0.2,  curl: -0.28, ruffle: 0,    base: 0.05 })
+  };
+  function petalMat(hex) {
+    return new THREE.MeshStandardMaterial({ color: hex, vertexColors: true, side: THREE.DoubleSide, roughness: 0.72, metalness: 0 });
+  }
+  var greenMat = new THREE.MeshStandardMaterial({ color: 0x3f7a45, roughness: 0.8 });
+  var yellowMat = new THREE.MeshStandardMaterial({ color: 0xf2b705, roughness: 0.6 });
+
+  /* ---------- flower builders ---------- */
+  function layered(layers, cols, geoIn, geoOut, outerCount) {
+    var g = new THREE.Group(), petals = [];
+    var mats = cols.map(petalMat);
+    layers.forEach(function (ly, li) {
+      var m = mats[Math.min(mats.length - 1, Math.floor(li / layers.length * mats.length))];
+      var off = rand(0, TAU);
+      for (var k = 0; k < ly.n; k++) {
+        var pivot = new THREE.Group();
+        pivot.rotation.y = off + k / ly.n * TAU + rand(-0.1, 0.1);
+        var mesh = new THREE.Mesh(li >= layers.length - outerCount ? geoOut : geoIn, m);
+        mesh.position.set(0, ly.y || 0, ly.r);
+        mesh.rotation.z = rand(-0.14, 0.14);
+        var j = rand(0.9, 1.1);
+        pivot.add(mesh); g.add(pivot);
+        petals.push({
+          mesh: mesh,
+          bs: [ly.W * 2 * j, ly.L * j, (ly.W * 2 + ly.L) / 2 * j],
+          open: ly.tilt + rand(-0.06, 0.06),
+          closed: ly.tilt * 0.12,
+          d: (layers.length - 1 - li) / layers.length * 0.3
+        });
+      }
+    });
+    var calyx = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.03, 0.14, 8), greenMat);
+    calyx.position.y = -0.06; g.add(calyx);
+    return { group: g, petals: petals };
+  }
+  var PEONY_COLS = [
+    ['#e04a80', '#f27ba5', '#f9b3cb'],
+    ['#f08fab', '#f9c0d0', '#fde2ea'],
+    ['#f3cdbd', '#fbeae0', '#fffaf5'],
+    ['#e9595c', '#f68a7c', '#fbbba9'],
+    ['#b62a6c', '#d9508f', '#ee93bb'],
+    ['#ee6f9c', '#f7a3c0', '#fcd3e0']
+  ];
+  var peonyN = 0;
+  function peony() {
+    var f = layered([
+      { n: 5,  r: 0.03, L: 0.34, W: 0.10, tilt: 0.12 },
+      { n: 7,  r: 0.07, L: 0.42, W: 0.13, tilt: 0.30 },
+      { n: 8,  r: 0.11, L: 0.50, W: 0.16, tilt: 0.52 },
+      { n: 9,  r: 0.14, L: 0.56, W: 0.19, tilt: 0.78 },
+      { n: 10, r: 0.16, L: 0.60, W: 0.21, tilt: 1.05 },
+      { n: 10, r: 0.17, L: 0.62, W: 0.23, tilt: 1.30, y: -0.03 }
+    ], PEONY_COLS[peonyN++ % PEONY_COLS.length], GEO.peonyIn, GEO.peonyOut, 2);
+    f.k = 0.95; return f;
+  }
+  function rose() {
+    var f = layered([
+      { n: 3, r: 0.02, L: 0.30, W: 0.12, tilt: 0.05 },
+      { n: 4, r: 0.05, L: 0.36, W: 0.15, tilt: 0.18 },
+      { n: 5, r: 0.08, L: 0.42, W: 0.18, tilt: 0.38 },
+      { n: 5, r: 0.10, L: 0.46, W: 0.21, tilt: 0.62 },
+      { n: 6, r: 0.12, L: 0.48, W: 0.23, tilt: 0.92 }
+    ], ['#8f0f2a', '#b5173a', '#d02c50'], GEO.rose, GEO.roseOut, 1);
+    f.k = 1.0; return f;
+  }
+  var TULIP_COLS = [['#f2a71b', '#f8cb52'], ['#7a3fa0', '#a468c8'], ['#f5d0dc', '#fff0f4']];
+  var tulipN = 0;
+  function tulip() {
+    var f = layered([
+      { n: 3, r: 0.04, L: 0.62, W: 0.20, tilt: 0.18 },
+      { n: 3, r: 0.06, L: 0.64, W: 0.21, tilt: 0.30 }
+    ], TULIP_COLS[tulipN++ % TULIP_COLS.length], GEO.tulip, GEO.tulip, 0);
+    f.k = 1.0; return f;
+  }
+  function daisy() {
+    var f = layered([{ n: 16, r: 0.08, L: 0.42, W: 0.055, tilt: 1.38 }], ['#ffffff'], GEO.daisy, GEO.daisy, 0);
+    var c = new THREE.Mesh(new THREE.SphereGeometry(0.11, 14, 10), yellowMat);
+    c.scale.y = 0.5; c.position.y = 0.02; f.group.add(c);
+    f.k = 1.0; return f;
+  }
+  function setBloom(f, p) {
+    f.group.scale.setScalar(Math.max(0.001, f.k * easeOutBack(clamp(p * 2.4))));
+    for (var i = 0; i < f.petals.length; i++) {
+      var pt = f.petals[i];
+      var q = easeInOut(clamp((p - pt.d) / 0.7));
+      pt.mesh.rotation.x = pt.closed + (pt.open - pt.closed) * q;
+      var s = 0.5 + 0.5 * q;
+      pt.mesh.scale.set(pt.bs[0] * s, pt.bs[1] * s, pt.bs[2] * s);
+    }
+  }
+
+  /* ---------- arrangement ---------- */
+  var TIE = new THREE.Vector3(0, -1.0, 0);
+  var UP = new THREE.Vector3(0, 1, 0);
+  var items = [];           // timeline: { t0, dur, apply(p), done }
+  function dirOf(phi, th) { return new THREE.Vector3(Math.sin(phi) * Math.cos(th), Math.cos(phi), Math.sin(phi) * Math.sin(th)); }
+  function addStem(dir, head, radius) {
+    var bottom = new THREE.Vector3(-dir.x * 0.32, TIE.y - 1.15, -dir.z * 0.32);
+    var mid = TIE.clone().add(dir.clone().multiplyScalar(head.clone().sub(TIE).length() * 0.55));
+    var curve = new THREE.CatmullRomCurve3([bottom, TIE.clone().add(new THREE.Vector3(dir.x * 0.05, 0, dir.z * 0.05)), mid, head]);
+    bouquet.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 18, radius, 5, false), greenMat));
+  }
+
+  var ORDER = ['peony', 'rose', 'peony', 'tulip', 'daisy', 'peony', 'rose', 'daisy', 'peony', 'tulip', 'peony', 'daisy', 'rose', 'tulip', 'peony', 'daisy'];
+  var MAKE = { peony: peony, rose: rose, tulip: tulip, daisy: daisy };
+  var PHI_MAX = 0.58, N = ORDER.length;
+  ORDER.forEach(function (type, i) {
+    var phi = PHI_MAX * Math.sqrt((i + 0.35) / N), th = i * 2.39996 + 0.6;
+    var dir = dirOf(phi, th);
+    var L = 3.45 - 0.5 * Math.pow(phi / PHI_MAX, 2) + rand(-0.1, 0.12);
+    var headPos = TIE.clone().add(dir.clone().multiplyScalar(L));
+    addStem(dir, headPos, 0.024);
+    var f = MAKE[type]();
+    var head = new THREE.Group();
+    head.position.copy(headPos);
+    head.quaternion.setFromUnitVectors(UP, dir.clone().multiplyScalar(0.85).add(new THREE.Vector3(0, 0.15, 0)).normalize());
+    head.add(f.group); bouquet.add(head);
+    items.push({ t0: 1.5 + i * 0.42, dur: 2.0, apply: function (p) { setBloom(f, p); } });
+  });
+
+  // baby's breath
+  var puffGeo = new THREE.IcosahedronGeometry(0.05, 1);
+  var puffMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 });
+  var twigMat = new THREE.LineBasicMaterial({ color: 0x6fa36f });
+  for (var b = 0; b < 9; b++) {
+    (function (b) {
+      var inner = b >= 6;
+      var phi = inner ? 0.27 : 0.5 + rand(-0.04, 0.06), th = inner ? b * TAU / 3 + 1.1 : b * TAU / 6 + 0.25;
+      var dir = dirOf(phi, th);
+      var pos = TIE.clone().add(dir.clone().multiplyScalar(inner ? 3.75 : 3.35));
+      addStem(dir, pos.clone().add(dir.clone().multiplyScalar(-0.3)), 0.012);
+      var g = new THREE.Group(); g.position.copy(pos); g.quaternion.setFromUnitVectors(UP, dir);
+      var pts = [], balls = [];
+      for (var k = 0; k < 11; k++) {
+        var o = new THREE.Vector3(rand(-0.3, 0.3), rand(-0.05, 0.3), rand(-0.3, 0.3));
+        var m = new THREE.Mesh(puffGeo, puffMat); m.position.copy(o); m.userData.s = rand(0.7, 1.3);
+        g.add(m); balls.push(m);
+        pts.push(0, -0.3, 0, o.x, o.y, o.z);
+      }
+      var lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+      var lines = new THREE.LineSegments(lg, twigMat); g.add(lines);
+      bouquet.add(g);
+      items.push({ t0: 2.2 + b * 0.62, dur: 1.3, apply: function (p) {
+        lines.visible = p > 0;
+        for (var k = 0; k < balls.length; k++) {
+          balls[k].scale.setScalar(Math.max(0.001, balls[k].userData.s * easeOutBack(clamp(p * 1.6 - k * 0.05))));
+        }
+      } });
+    })(b);
+  }
+
+  // leaves around the rim
+  var leafMats = [petalMat('#2f6b3c'), petalMat('#4c8f52')];
+  for (var l = 0; l < 10; l++) {
+    (function (l) {
+      var pivot = new THREE.Group(); pivot.position.copy(TIE); pivot.rotation.y = l * TAU / 10 + rand(-0.1, 0.1);
+      var arm = new THREE.Group(); arm.rotation.x = 0.6 + rand(-0.03, 0.05);
+      var leaf = new THREE.Mesh(GEO.leaf, leafMats[l % 2]);
+      leaf.position.y = 1.95; leaf.rotation.x = 0.28; leaf.rotation.z = rand(-0.2, 0.2);
+      var len = rand(1.25, 1.6);
+      arm.add(leaf); pivot.add(arm); bouquet.add(pivot);
+      items.push({ t0: 0.5 + l * 0.08, dur: 1.0, apply: function (p) {
+        var s = Math.max(0.001, easeOutBack(clamp(p)));
+        leaf.scale.set(0.95 * s, len * s, 0.95 * s);
+      } });
+    })(l);
+  }
+
+  // wrapping paper
+  function wrap(rt, yTop, hex, phase) {
+    var yb = -1.25, h = yTop - yb, rb = 0.22;
+    var g = new THREE.CylinderGeometry(rt, rb, h, 56, 8, true);
+    var p = g.attributes.position;
+    for (var i = 0; i < p.count; i++) {
+      var x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+      var t = (y + h / 2) / h, a = Math.atan2(z, x);
+      var k = 1 + 0.05 * Math.sin(a * 7 + phase) * t;
+      p.setXYZ(i, x * k, y + (0.13 * Math.sin(a * 5 + phase) + 0.07 * Math.sin(a * 11 + phase * 2)) * t * t, z * k);
+    }
+    g.computeVertexNormals();
+    var m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: hex, side: THREE.DoubleSide, roughness: 0.95 }));
+    m.position.y = yb + h / 2;
+    bouquet.add(m);
+  }
+  wrap(1.6, 1.0, '#f6dccf', 0);
+  wrap(1.72, 0.8, '#fff7f0', 1.7);
+
+  // ribbon and bow
+  var ribMat = new THREE.MeshStandardMaterial({ color: 0xd6336c, roughness: 0.45, side: THREE.DoubleSide });
+  var band = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.055, 8, 40), ribMat);
+  band.rotation.x = Math.PI / 2; band.scale.z = 1.6; band.position.y = -0.95; bouquet.add(band);
+  [-1, 1].forEach(function (sd) {
+    var loop = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.045, 8, 22), ribMat);
+    loop.scale.set(1, 0.6, 1); loop.position.set(sd * 0.2, -0.93, 0.47); loop.rotation.z = sd * 0.35; bouquet.add(loop);
+    var tail = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.55, 0.012), ribMat);
+    tail.position.set(sd * 0.1, -1.22, 0.47); tail.rotation.z = sd * 0.28; bouquet.add(tail);
+  });
+  var knot = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 10), ribMat);
+  knot.position.set(0, -0.94, 0.48); bouquet.add(knot);
+
+  // whole bouquet arrives
+  items.push({ t0: 0, dur: 1.1, apply: function (p) {
+    var e = easeOutCubic(clamp(p));
+    bouquet.scale.setScalar(0.55 + 0.45 * e);
+    bouquet.position.y = -1.2 * (1 - e);
+  } });
+  // the name is written near the end
+  var NAME_AT = 1.5 + N * 0.42 * 0.62;
+  items.push({ t0: NAME_AT, dur: 0.01, apply: function (p) { caption.classList.toggle('show', p >= 1); } });
+
+  // drifting glow dust
+  var DUST = 70, dpos = new Float32Array(DUST * 3), dspd = [];
+  for (var d = 0; d < DUST; d++) {
+    dpos[d * 3] = rand(-4.5, 4.5); dpos[d * 3 + 1] = rand(-3, 5.5); dpos[d * 3 + 2] = rand(-3.5, 3);
+    dspd.push(rand(0.08, 0.3));
+  }
+  var dustGeo = new THREE.BufferGeometry(); dustGeo.setAttribute('position', new THREE.BufferAttribute(dpos, 3));
+  var dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({ color: 0xffc4d6, size: 0.07, transparent: true, opacity: 0.75, blending: THREE.AdditiveBlending, depthWrite: false }));
+  scene.add(dust);
+
+  /* ---------- camera ---------- */
+  function resize() {
+    var w = canvas.clientWidth, h = canvas.clientHeight;
+    if (!w || !h) return;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    var tan = Math.tan(camera.fov * Math.PI / 360);
+    var dist = Math.max(6.6 / (2 * tan), 4.7 / (2 * tan * camera.aspect));
+    var target = new THREE.Vector3(0, 0.6, 0);
+    camera.position.set(0, target.y + dist * Math.sin(0.2), dist * Math.cos(0.2));
+    camera.lookAt(target);
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  /* ---------- interaction ---------- */
+  var dragging = false, lastX = 0, vel = 0, idle = 0;
+  canvas.addEventListener('pointerdown', function (e) { dragging = true; lastX = e.clientX; vel = 0; try { canvas.setPointerCapture(e.pointerId); } catch (err) {} });
+  canvas.addEventListener('pointermove', function (e) {
+    if (!dragging) return;
+    var dx = e.clientX - lastX; lastX = e.clientX;
+    spin.rotation.y += dx * 0.008; vel = dx * 0.008; idle = 0;
+  });
+  function endDrag() { dragging = false; }
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
+
+  /* ---------- loop ---------- */
+  var start = 0, prev = 0;
+  function restart(now) {
+    start = now;
+    for (var i = 0; i < items.length; i++) { items[i].done = false; items[i].apply(0); }
+  }
+  document.getElementById('replay').addEventListener('click', function () {
+    if (reduced) return;
+    caption.classList.add('instant'); caption.classList.remove('show');
+    void caption.offsetWidth; caption.classList.remove('instant');
+    restart(performance.now());
+  });
+
+  function frame(now) {
+    var dt = Math.min(0.05, (now - prev) / 1000); prev = now;
+    var el = (now - start) / 1000;
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      if (it.done) continue;
+      var p = clamp((el - it.t0) / it.dur);
+      it.apply(p);
+      if (p >= 1) it.done = true;
+    }
+    if (!reduced) {
+      if (!dragging) {
+        idle += dt;
+        spin.rotation.y += vel; vel *= 0.93;
+        if (idle > 1.2) spin.rotation.y += 0.22 * dt;
+      }
+      var arr = dustGeo.attributes.position.array;
+      for (var d = 0; d < DUST; d++) {
+        arr[d * 3 + 1] += dspd[d] * dt;
+        if (arr[d * 3 + 1] > 5.5) arr[d * 3 + 1] = -3;
+      }
+      dustGeo.attributes.position.needsUpdate = true;
+    } else if (!dragging) { spin.rotation.y += vel; vel *= 0.9; }
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  }
+
+  if (reduced) {
+    caption.classList.add('instant', 'show');
+    for (var r = 0; r < items.length; r++) { items[r].apply(1); items[r].done = true; }
+    caption.classList.add('show');
+  } else {
+    restart(performance.now());
+  }
+  prev = performance.now();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
