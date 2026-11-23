@@ -1,6 +1,7 @@
 services:
   bouquet:
     image: nginx:1.27-alpine
+    network_mode: bridge
     ports:
       - "47391:80"
     volumes:
